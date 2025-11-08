@@ -5,7 +5,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"log"
-	"math/rand"
 	"os"
 	"os/signal"
 	"strings"
@@ -24,31 +23,31 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
-// Person represents a person with name and birthday
+// Person represents a person with name, birthday, phone and gender
 type Person struct {
 	Name     string
 	Birthday time.Time
 	Phone    string
+	Gender   string
 }
 
 // Birthday message templates (English - for age <= 40)
 var birthdayMessageTemplates = []string{
-	"🎉 Happy Birthday, श्री %s जी! 🎂\n\nWishing you a day filled with happiness and positivity. Hope the year ahead is fantastic. 🎈\n\n--%s (%s)",
-	"🌟 Happy Birthday, श्री %s जी! 🎊\n\nMay your special day bring enduring joy and memorable moments. Here's to another remarkable year ahead! 🥳\n\n--%s (%s)",
-	"🎂 Warmest wishes on your special day, श्री %s जी! 🎉\n\nWishing you every success and happiness in the coming year. May your ambitions continue to soar. 🎁\n\n--%s (%s)",
-	"🎈 Happy Birthday, श्री %s जी! 🌈\n\nMay laughter and good health accompany you today and always. Wishing you happiness and fulfillment throughout the year! 🥳\n\n--%s (%s)",
-	"🎊 Wishing you a truly happy birthday, श्री %s जी! 🎂\n\nMay this year be filled with rewarding experiences and cherished moments. You deserve the very best each day. 🎉\n\n--%s (%s)",
-	"🎁 Happy Birthday, श्री %s जी! 🎈\n\nSending you heartfelt wishes for growth and happiness. May this year bring you closer to your aspirations. 🥳\n\n--%s (%s)",
-	"🌺 Warm birthday greetings to someone exceptional, श्री %s जी! 🎂\n\nMay your year ahead be filled with achievements and bright opportunities. 🎉\n\n--%s (%s)",
+	"जय श्री कृष्णा 🎉 \n Happy Birthday,\n%s %s जी! 🎂\n\nWishing you a day filled with happiness and positivity. Hope the year ahead is fantastic. 🎈\n\n--%s (%s)",
 }
 
 // Birthday message templates (Hindi - for age > 40)
 var birthdayMessageTemplatesHindi = []string{
-	"🎉 जन्मदिन मुबारक हो, श्री %s जी! 🎂\n\nआपका दिन खुशियों और सकारात्मकता से भरा हो। आशा है आने वाला साल आपके लिए शानदार रहेगा। 🎈\n\n--%s (%s)",
-	"🌟 जन्मदिन की शुभकामनाएँ, श्री %s जी! 🎊\n\nयह खास दिन आपके लिए खुशियाँ और सुंदर यादें लेकर आए। आपके जीवन के एक और अद्भुत वर्ष के लिए शुभकामनाएँ! 🥳\n\n--%s (%s)",
-	"🎂 आपके खास दिन पर हार्दिक शुभकामनाएँ, श्री %s जी! 🎉\n\nआने वाले साल में आपको सफलता और खुशी मिले। आपके सपने और भी ऊँचे हों। 🎁\n\n--%s (%s)",
-	"🎈 जन्मदिन मुबारक हो, श्री %s जी! 🌈\n\nहँसी और अच्छे स्वास्थ्य का साथ हमेशा आपके साथ रहे। नए साल में आपको आनंद और उपलब्धियों की शुभकामनाएँ! 🥳\n\n--%s (%s)",
-	"🎁 जन्मदिन मुबारक हो, श्री %s जी! 🎈\n\nआपको खुशियों व उन्नति की शुभकामनाएँ। आने वाला साल आपके लक्ष्य के और करीब लाए। 🥳\n\n--%s (%s)",
+	"जय श्री कृष्णा 🌟 \n जन्मदिन की हार्दिक शुभकामनाएँ,\n%s %s जी! 🎊\n\nयह खास दिन आपके लिए खुशियाँ और सुंदर यादें लेकर आए। आपके जीवन के एक और अद्भुत वर्ष के लिए शुभकामनाएँ! 🥳\n\n--%s (%s)",
+}
+
+// Helper to determine prefix from gender
+func getTitle(gender string) string {
+	gender = strings.ToLower(strings.TrimSpace(gender))
+	if gender == "female" || gender == "f" || gender == "महिला" {
+		return "श्रीमती"
+	}
+	return "श्री"
 }
 
 func main() {
@@ -59,7 +58,7 @@ func main() {
 
 	if senderName == "" || senderNumber == "" || reportNumber == "" {
 		log.Fatal("SENDER_NAME, SENDER_NUMBER, and REPORT_NUMBER environment variables must be set")
-		return;
+		return
 	}
 	// Set up logging
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
@@ -119,7 +118,6 @@ func main() {
 	for !client.IsConnected() {
 		time.Sleep(1 * time.Second)
 	}
-	
 	// Additional wait to ensure device sync is complete
 	fmt.Println("🔄 Allowing time for device synchronization...")
 	time.Sleep(10 * time.Second)
@@ -138,25 +136,10 @@ func main() {
 	}
 
 	log.Printf("Loaded %d people from CSV", len(people))
-
 	// Check birthdays immediately on startup
 	checkBirthdays(client, people, senderName, senderNumber, reportNumber)
 
-	// Set up ticker to check birthdays daily at 9 AM
-	now := time.Now()
-	next9AM := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, now.Location())
-	if now.After(next9AM) {
-		next9AM = next9AM.Add(24 * time.Hour)
-	}
-
-	// Calculate duration until next 9 AM
-	duration := next9AM.Sub(now)
-	log.Printf("Next birthday check in: %v", duration)
-
-	// Create timer for first check at 9 AM
-	timer := time.NewTimer(duration)
-
-	// Create ticker for subsequent daily checks
+	// Create ticker for daily birthday checks (every 24 hours)
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 
@@ -169,10 +152,6 @@ func main() {
 
 	for {
 		select {
-		case <-timer.C:
-			log.Println("Checking birthdays...")
-			checkBirthdays(client, people, senderName, senderNumber, reportNumber)
-			// Timer only fires once, so we rely on ticker for subsequent checks
 		case <-ticker.C:
 			log.Println("Daily birthday check...")
 			checkBirthdays(client, people, senderName, senderNumber, reportNumber)
@@ -213,7 +192,6 @@ func loadPeopleFromCSV(filename string) ([]Person, error) {
 		if i == 0 {
 			continue
 		}
-
 		if len(record) < 18 {
 			log.Printf("Skipping row %d: not enough columns (expected 18+, got %d)", i+1, len(record))
 			continue
@@ -224,25 +202,26 @@ func loadPeopleFromCSV(filename string) ([]Person, error) {
 		birthdayStr := strings.TrimSpace(record[17])   // DOB - column 18 (index 17)
 		primaryPhone := strings.TrimSpace(record[14])  // Mobile No. 1 - column 15 (index 14)
 		whatsappPhone := strings.TrimSpace(record[15]) // Whatsapp No. 2 - column 16 (index 15)
+		gender := ""
+		if len(record) > 18 {
+			gender = strings.TrimSpace(record[18]) // Gender column (index 18)
+		}
 
 		// Skip if name is empty
 		if name == "" {
 			log.Printf("Skipping row %d: empty name", i+1)
 			continue
 		}
-
 		// Skip if no birthday information
 		if birthdayStr == "" {
 			log.Printf("Skipping %s: empty birthday", name)
 			continue
 		}
-
 		// Choose phone number (prefer WhatsApp number, fallback to primary)
 		phone := primaryPhone
 		if phone == "" {
 			phone = whatsappPhone
 		}
-
 		// Skip if no phone number available
 		if phone == "" {
 			log.Printf("Skipping %s: no phone number available", name)
@@ -261,25 +240,28 @@ func loadPeopleFromCSV(filename string) ([]Person, error) {
 			"2006-01-02", // YYYY-MM-DD
 		} {
 			if t, err := time.Parse(layout, birthdayStr); err == nil {
-				// Handle 2-digit years (assume people are between 0-100 years old)
 				if t.Year() < 1900 {
-					// For 2-digit years: 00-30 -> 2000-2030, 31-99 -> 1931-1999
-					if t.Year() <= 30 {
+					now := time.Now()
+					cutoff := now.Year() % 100
+					if t.Year() <= cutoff {
 						t = t.AddDate(2000, 0, 0)
 					} else {
 						t = t.AddDate(1900, 0, 0)
 					}
 				}
+				// If the parsed year is in the future, subtract 100 years
+				now := time.Now()
+				if t.Year() > now.Year() {
+					t = t.AddDate(-100, 0, 0)
+				}
 				birthday = t
 				break
 			}
 		}
-
 		if birthday.IsZero() {
 			log.Printf("Skipping %s: invalid date format %s", name, birthdayStr)
 			continue
 		}
-
 		// Clean phone number (remove spaces, dashes, etc.)
 		phone = strings.ReplaceAll(phone, " ", "")
 		phone = strings.ReplaceAll(phone, "-", "")
@@ -297,6 +279,7 @@ func loadPeopleFromCSV(filename string) ([]Person, error) {
 			Name:     name,
 			Birthday: birthday,
 			Phone:    phone,
+			Gender:   gender,
 		})
 	}
 
@@ -330,62 +313,46 @@ func checkBirthdays(client *whatsmeow.Client, people []Person, senderName, sende
 
 	// Check if client is connected before proceeding
 	if !client.IsConnected() {
-		log.Println("❌ WhatsApp client is not connected. Cannot send birthday messages.")
+		log.Println("❌ WhatsApp client is not connected. Cannot send birthday report.")
 		return
 	}
 
-	birthdayCount := 0
-	var sentPeople []Person
+	var birthdayPeople []Person
 	for _, person := range people {
 		fmt.Println("Checking:", person.Name, person.Birthday.Format("2006-Jan-02"))
 		// Check if today is their birthday (ignoring year)
 		if person.Birthday.Day() == today.Day() && person.Birthday.Month() == today.Month() {
-			birthdayCount++
 			log.Printf("🎂 Found birthday for %s: %s", person.Name, person.Birthday.Format("2006-Jan-02"))
-			age := today.Year() - person.Birthday.Year()
-
-			// Select message template based on age (Hindi for age > 40, English otherwise)
-			var message string
-			if age > 40 {
-				templateIndex := rand.Intn(len(birthdayMessageTemplatesHindi))
-				message = fmt.Sprintf(birthdayMessageTemplatesHindi[templateIndex], person.Name, senderName, senderNumber)
-				log.Printf("📝 Using Hindi template for %s", person.Name)
-			} else {
-				templateIndex := rand.Intn(len(birthdayMessageTemplates))
-				message = fmt.Sprintf(birthdayMessageTemplates[templateIndex], person.Name, senderName, senderNumber)
-				log.Printf("📝 Using English template for %s", person.Name)
-			}
-
-			err := sendMessage(client, person.Phone, message)
-			if err != nil {
-				log.Printf("❌ Error sending birthday message to %s (%s): %v", person.Name, person.Phone, err)
-			} else {
-				log.Printf("✅ Sent birthday message to %s (%s)", person.Name, person.Phone)
-				sentPeople = append(sentPeople, person)
-			}
-
-			// Add a small delay between messages to avoid rate limiting
-			time.Sleep(3 * time.Second)
+			birthdayPeople = append(birthdayPeople, person)
 		}
 	}
 
-	if birthdayCount == 0 {
+	if len(birthdayPeople) == 0 {
 		log.Println("📅 No birthdays today!")
 	} else {
-		log.Printf("🎉 Found %d birthday(s) today!", birthdayCount)
-		// Report to the report number
-		reportMsg := "Birthday messages sent today:\n"
-		for _, p := range sentPeople {
-			reportMsg += fmt.Sprintf("%s (%s)\n", p.Name, p.Phone)
+		log.Printf("🎉 Found %d birthday(s) today!", len(birthdayPeople))
+
+		// Build report message with list of birthday people
+		reportMsg := fmt.Sprintf("🎂 Birthday Report for %s\n\n", today.Format("Monday, January 2, 2006"))
+		reportMsg += fmt.Sprintf("Total: %d birthday(s) today\n\n", len(birthdayPeople))
+
+		for i, p := range birthdayPeople {
+			age := today.Year() - p.Birthday.Year()
+			title := getTitle(p.Gender)
+			reportMsg += fmt.Sprintf("%d. %s %s\n", i+1, title, p.Name)
+			reportMsg += fmt.Sprintf("   📱 +%s\n", p.Phone)
+			reportMsg += fmt.Sprintf("   🎂 Age: %d years\n", age)
+			reportMsg += fmt.Sprintf("   👤 Gender: %s\n\n", p.Gender)
 		}
-		if len(sentPeople) == 0 {
-			reportMsg += "(No messages sent)"
-		}
+
+		reportMsg += fmt.Sprintf("--Report from %s (%s)", senderName, senderNumber)
+
+		// Send report to the report number
 		err := sendMessage(client, reportNumber, reportMsg)
 		if err != nil {
-			log.Printf("❌ Error sending report to %s: %v", reportNumber, err)
+			log.Printf("❌ Error sending birthday report to %s: %v", reportNumber, err)
 		} else {
-			log.Printf("✅ Sent report to %s", reportNumber)
+			log.Printf("✅ Sent birthday report to %s", reportNumber)
 		}
 	}
 }
@@ -395,7 +362,6 @@ func sendMessage(client *whatsmeow.Client, phoneNumber, message string) error {
 	if !client.IsConnected() {
 		return fmt.Errorf("WhatsApp client is not connected")
 	}
-
 	// Parse the phone number into a JID
 	jid, err := types.ParseJID(phoneNumber + "@s.whatsapp.net")
 	if err != nil {
@@ -416,6 +382,5 @@ func sendMessage(client *whatsmeow.Client, phoneNumber, message string) error {
 	if err != nil {
 		return fmt.Errorf("failed to send message: %v", err)
 	}
-
 	return nil
 }
