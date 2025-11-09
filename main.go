@@ -16,7 +16,6 @@ import (
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -25,20 +24,13 @@ import (
 
 // Person represents a person with name, birthday, phone and gender
 type Person struct {
-	Name     string
-	Birthday time.Time
-	Phone    string
-	Gender   string
-}
-
-// Birthday message templates (English - for age <= 40)
-var birthdayMessageTemplates = []string{
-	"जय श्री कृष्णा 🎉 \n Happy Birthday,\n%s %s जी! 🎂\n\nWishing you a day filled with happiness and positivity. Hope the year ahead is fantastic. 🎈\n\n--%s (%s)",
-}
-
-// Birthday message templates (Hindi - for age > 40)
-var birthdayMessageTemplatesHindi = []string{
-	"जय श्री कृष्णा 🌟 \n जन्मदिन की हार्दिक शुभकामनाएँ,\n%s %s जी! 🎊\n\nयह खास दिन आपके लिए खुशियाँ और सुंदर यादें लेकर आए। आपके जीवन के एक और अद्भुत वर्ष के लिए शुभकामनाएँ! 🥳\n\n--%s (%s)",
+	Name       string
+	Birthday   time.Time
+	Phone      string
+	Gender     string
+	FatherName string
+	Address    string
+	Gotra      string
 }
 
 // Helper to determine prefix from gender
@@ -77,7 +69,6 @@ func main() {
 
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
-	client.AddEventHandler(eventHandler)
 
 	// Check if client is already logged in
 	if client.Store.ID == nil {
@@ -163,15 +154,6 @@ func main() {
 	}
 }
 
-func eventHandler(evt interface{}) {
-	switch v := evt.(type) {
-	case *events.Message:
-		log.Printf("Received message from %s: %s", v.Info.Sender, v.Message.GetConversation())
-	case *events.Receipt:
-		log.Printf("Message %s was %s", v.MessageIDs[0], v.Type)
-	}
-}
-
 func loadPeopleFromCSV(filename string) ([]Person, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -202,6 +184,12 @@ func loadPeopleFromCSV(filename string) ([]Person, error) {
 		birthdayStr := strings.TrimSpace(record[17])   // DOB - column 18 (index 17)
 		primaryPhone := strings.TrimSpace(record[14])  // Mobile No. 1 - column 15 (index 14)
 		whatsappPhone := strings.TrimSpace(record[15]) // Whatsapp No. 2 - column 16 (index 15)
+		fatherName := strings.TrimSpace(record[7])     // Father/Husband Name(Eng.) - column 8 (index 7)
+		gotra := strings.TrimSpace(record[10])         // Gotra - column 11 (index 10)
+		address := ""
+		if len(record) > 20 {
+			address = strings.TrimSpace(record[20]) // Address - column 21 (index 20)
+		}
 		gender := ""
 		if len(record) > 18 {
 			gender = strings.TrimSpace(record[18]) // Gender column (index 18)
@@ -276,10 +264,13 @@ func loadPeopleFromCSV(filename string) ([]Person, error) {
 		}
 
 		people = append(people, Person{
-			Name:     name,
-			Birthday: birthday,
-			Phone:    phone,
-			Gender:   gender,
+			Name:       name,
+			Birthday:   birthday,
+			Phone:      phone,
+			Gender:     gender,
+			FatherName: fatherName,
+			Address:    address,
+			Gotra:      gotra,
 		})
 	}
 
@@ -339,10 +330,21 @@ func checkBirthdays(client *whatsmeow.Client, people []Person, senderName, sende
 		for i, p := range birthdayPeople {
 			age := today.Year() - p.Birthday.Year()
 			title := getTitle(p.Gender)
+			
 			reportMsg += fmt.Sprintf("%d. %s %s\n", i+1, title, p.Name)
+			if p.Gotra != "" {
+				reportMsg += fmt.Sprintf("   🕉️ Gotra: %s\n", p.Gotra)
+			}
+			if p.FatherName != "" {
+				reportMsg += fmt.Sprintf("   👨 Father/Husband: %s\n", p.FatherName)
+			}
 			reportMsg += fmt.Sprintf("   📱 +%s\n", p.Phone)
 			reportMsg += fmt.Sprintf("   🎂 Age: %d years\n", age)
-			reportMsg += fmt.Sprintf("   👤 Gender: %s\n\n", p.Gender)
+			reportMsg += fmt.Sprintf("   👤 Gender: %s\n", p.Gender)
+			if p.Address != "" {
+				reportMsg += fmt.Sprintf("   🏠 Address: %s\n", p.Address)
+			}
+			reportMsg += "\n"
 		}
 
 		reportMsg += fmt.Sprintf("--Report from %s (%s)", senderName, senderNumber)
